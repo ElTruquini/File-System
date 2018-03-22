@@ -17,6 +17,30 @@
 #include <fcntl.h>
 #include "diskinfo.h"
 
+
+// extern unsigned int bsize, bcount, fatstart, fatblocks, rootstart, rootblocks;
+struct __attribute__((__packed__))dir_entry_timedate_t{
+	uint16_t year;
+	uint8_t month;
+	uint8_t day;
+	uint8_t hour;
+	uint8_t minute;
+	uint8_t second;
+}dir_timedate;
+
+struct __attribute__((__packed__))dir_entry_t{
+	uint8_t status;
+	uint32_t starting_block;
+	uint32_t block_count;
+	uint32_t size;
+	struct dir_entry_timedate_t modify_time;
+	struct dir_entry_timedate_t create_time;
+	uint8_t filename[31];
+	uint8_t unused[6];
+}dir_entry;
+
+
+
 int main(int argc, char* argv[]) {
 	struct stat file_size;
 	unsigned char *ptr;
@@ -41,11 +65,20 @@ int main(int argc, char* argv[]) {
 	ptr = mmap(NULL, file_size.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, file, 0);
 	intializeVars(&ptr);
 
-	printf("FROM DISKLISTSSSSSSSSSSSSS\n");
+	printf("FROM DISKLISTS\n");
 	printf("Block size: %d\n", bsize);
 	printf("Block count: %u\n", bcount);
 	printf("FAT starts: %u\n", fatstart);
 	printf("FAT blocks: %u\n", fatblocks);
 	printf("Root directory start: %u\n", rootstart);
 	printf("Root directory blocks: %u\n", rootblocks);
+
+
+	dir_entry *dir1 = (dir_entry *)calloc(1, sizeof(dir_entry));
+
+	printf("%02x - %d\n", ptr[rootstart*bsize], rootstart*bsize);
+
+
+
+
 }
