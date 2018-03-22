@@ -1,3 +1,7 @@
+// Written by: Daniel Olaya - V00855054
+// Date: March, 2018,
+// CSC360 - Operative Systems
+
 #include <stdio.h> 
 #include <stdint.h> 
 #include <stdlib.h> 
@@ -9,136 +13,110 @@
 #include <time.h> 
 #include <arpa/inet.h> 
 #include <ctype.h>
+#include <sys/mman.h>
+#include <fcntl.h>
 
 #define SYSTEM_ID_LEN 8 // File system identifier 
 #define BLOCK_SIZE_LEN 2
+#define FILE_SYS_SIZE 4 // File system size
+#define B_FAT_START 4 	// Block where FAT starts
+#define NUM_B_FAT 4 	// Number of blocks in fat
+#define B_ROOT_START 4 	// Block where root dirtectoy starts
+#define NUM_B_ROOT 4 	// Number of blocks in root dir
 
 int main(int argc, char* argv[]) {
-	FILE *fp;
-	int i;
-	unsigned char id_arr[SYSTEM_ID_LEN+1], bsize_arr[BLOCK_SIZE_LEN], bcount_arr[sizeof(int)], 
-					fatstart_arr[sizeof(int)], fatblocks_arr[sizeof(int)], rootstart_arr[sizeof(int)],
-					rootblocks_arr[sizeof(int)], numblocks_arr[sizeof(int)];
-	unsigned int bcount, bsize, fatstart, fatblocks, rootstart, rootblocks, numblocks;
-	// unsigned int bcount_arr;
+	struct stat file_size;
+	unsigned char id_arr[SYSTEM_ID_LEN+1]; 
+	unsigned int bsize = 0,
+				bcount = 0,
+				fatstart = 0, 
+				fatblocks = 0,
+				rootstart = 0,
+				rootblocks = 0;
+	unsigned char *ptr;
+	int file,
+		buffer = 0,
+		reserved = 0,
+		free = 0,
+		allocated = 0;
 
 	if (argc != 2){
-		printf("Error - Usage: [file_name] [disk_image]\n");
+		perror("Usage: [file_name] [disk_image]\n");
+		return EXIT_FAILURE;
+	}
+	file = open(argv[1], O_RDWR);
+	if (file < 0){
+		perror("Unable to open file\n");
+		return EXIT_FAILURE;
+	}
+	printf("File [%s] opened...\n\n", argv[1]);
+	if (fstat(file, &file_size) != 0){
+		perror("fstat() error");
 		return EXIT_FAILURE;
 	}
 
-	fp = fopen(argv[1], "rb");
-	if (fp == NULL){
-		printf("Error - Failed opening the file\n");
-		return EXIT_FAILURE;
-	} else{
-		printf("Disk image [%s] opened...\n\n", argv[1]);
-	}
+	ptr = mmap(NULL, file_size.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, file, 0);
 
 	printf("Super block information:\n");
 
 	//File system identifier
-	printf("SYS ID:");
-	for (i =0 ; i < SYSTEM_ID_LEN ; i++){
-		if (fread(&id_arr[i], sizeof(char), 1, fp) <= 0)
-			fprintf(stderr, "Error reading file (fread)\n");
-		printf("%c",*(id_arr+i));
-	}
-	id_arr[i+1]= '\0';
-	printf("\n");
-
+	memcpy(&id_arr, ptr, SYSTEM_ID_LEN);
+	id_arr[SYSTEM_ID_LEN] = '\0';
+	// printf("SYS ID:%s\n", id_arr);
 
 	//Block size
-	for (i = 0 ; i < BLOCK_SIZE_LEN ; i++){
-		if (fread(&bsize_arr[i], sizeof(char), 1, fp) <= 0)
-			fprintf(stderr, "Error reading file (fread)\n");
-	}
-	printf("\n");
-	bsize = ((unsigned char)bsize_arr[0] * 256 + (unsigned char)bsize_arr[1]);
+	memcpy(&bsize, ptr+SYSTEM_ID_LEN, BLOCK_SIZE_LEN);
+	bsize = htons(bsize);
 	printf("Block size: %d\n", bsize);
 
-
 	//Block count
-	for (i = 0 ; i < sizeof(int) ; i++){
-		if (fread(&bcount_arr[i], sizeof(char), 1, fp) <= 0)
-			fprintf(stderr, "Error reading file (fread) - block count\n");
-		// printf("%02x",*(bcount_arr+i));
-	}
-	bcount = (unsigned int)bcount_arr[0] | (unsigned int)bcount_arr[1]<<8 | (unsigned int)bcount_arr[2]<<16 | (unsigned int)bcount_arr[3]<<24;
-	bcount = htonl(bcount);
+	memcpy(&bcount, ptr+SYSTEM_ID_LEN+BLOCK_SIZE_LEN, FILE_SYS_SIZE);
+	bcount = ntohl(bcount);
 	printf("Block count: %u\n", bcount);
 
-
 	// FAT starts
-	for (i = 0 ; i < sizeof(int) ; i++){
-		if (fread(&fatstart_arr[i], sizeof(char), 1, fp) <= 0)
-			fprintf(stderr, "Error reading file (fread) - FAT starts\n");
-		// printf("%02x",*(fatstart_arr+i));
-	}
-	fatstart = (unsigned int)fatstart_arr[0] | (unsigned int)fatstart_arr[1]<<8 | (unsigned int)fatstart_arr[2]<<16 | (unsigned int)fatstart_arr[3]<<24;
-	fatstart = htonl(fatstart);
+	memcpy(&fatstart, ptr+SYSTEM_ID_LEN+BLOCK_SIZE_LEN+FILE_SYS_SIZE, B_FAT_START);
+	fatstart = ntohl(fatstart);
 	printf("FAT starts: %u\n", fatstart);
 
-
 	//FAT blocks
-	for (i = 0 ; i < sizeof(int) ; i++){
-		if (fread(&fatblocks_arr[i], sizeof(char), 1, fp) <= 0)
-			fprintf(stderr, "Error reading file (fread) - FAT blocks\n");
-		// printf("%02x",*(fatblocks_arr+i));
-	}
-	fatblocks = (unsigned int)fatblocks_arr[0] | (unsigned int)fatblocks_arr[1]<<8 | (unsigned int)fatblocks_arr[2]<<16 | (unsigned int)fatblocks_arr[3]<<24;
+	memcpy(&fatblocks, ptr+SYSTEM_ID_LEN+BLOCK_SIZE_LEN+FILE_SYS_SIZE+B_FAT_START, NUM_B_FAT);
 	fatblocks = htonl(fatblocks);
 	printf("FAT blocks: %u\n", fatblocks);
 
-
-	//Root dir start
-	for (i = 0 ; i < sizeof(int) ; i++){
-		if (fread(&rootstart_arr[i], sizeof(char), 1, fp) <= 0)
-			fprintf(stderr, "Error reading file (fread) - Root Start\n");
-		// printf("%02x",*(rootstart_arr+i));
-	}
-	rootstart = (unsigned int)rootstart_arr[0] | (unsigned int)rootstart_arr[1]<<8 | (unsigned int)rootstart_arr[2]<<16 | (unsigned int)rootstart_arr[3]<<24;
+ 	//Root dir start
+	memcpy(&rootstart, ptr+SYSTEM_ID_LEN+BLOCK_SIZE_LEN+FILE_SYS_SIZE+B_FAT_START+NUM_B_FAT, B_ROOT_START);
 	rootstart = htonl(rootstart);
 	printf("Root directory start: %u\n", rootstart);
 
-
 	//Root directory blocks
-	for (i = 0 ; i < sizeof(int) ; i++){
-		if (fread(&rootblocks_arr[i], sizeof(char), 1, fp) <= 0)
-			fprintf(stderr, "Error reading file (fread) - Root Start\n");
-		// printf("%02x",*(rootblocks_arr+i));
-	}
-	rootblocks = (unsigned int)rootblocks_arr[0] | (unsigned int)rootblocks_arr[1]<<8 | (unsigned int)rootblocks_arr[2]<<16 | (unsigned int)rootblocks_arr[3]<<24;
+	memcpy(&rootblocks, ptr+SYSTEM_ID_LEN+BLOCK_SIZE_LEN+FILE_SYS_SIZE+B_FAT_START+NUM_B_FAT+B_ROOT_START, NUM_B_ROOT);
 	rootblocks = htonl(rootblocks);
 	printf("Root directory blocks: %u\n", rootblocks);
 
+	for (int i = (fatstart*bsize); i < ((fatstart*bsize)+(fatblocks*bsize)); i+=4){
+		buffer = 0;
+		memcpy(&buffer, ptr+i, 4);
+		buffer = htonl(buffer);
+		// printf ("%x - Buffer is 0x%08x - ", i, buffer);
+		if (buffer == 0x00){
+			// printf("Free \n");
+			free++;	
+		}else if(buffer == 0x01){
+			// printf("Reserved \n");
+			reserved++;
+		}else{
+			// printf("Allocated \n");
+			allocated++;	
+		}
+	}	
+	printf("\nFat information:\n");
+	printf("Free blocks: %d\n", free);
+	printf("Reserved blocks: %d\n", reserved);
+	printf("Allocated blocks: %d\n", allocated);
+	
+	munmap(ptr, file_size.st_size);
+	close(file);
 
-	//Num blocks in root dir
-	for (i = 0 ; i < sizeof(int) ; i++){
-		if (fread(&numblocks_arr[i], sizeof(char), 1, fp) <= 0)
-			fprintf(stderr, "Error reading file (fread) - Root Start\n");
-		printf("%02x",*(numblocks_arr+i));
-	}
-	numblocks = (unsigned int)numblocks_arr[0] | (unsigned int)numblocks_arr[1]<<8 | (unsigned int)numblocks_arr[2]<<16 | (unsigned int)numblocks_arr[3]<<24;
-	numblocks = htonl(numblocks);
-	printf("NUM BLOCKS directory blocks: %u\n", numblocks);
-
-
-
-
-	/* Byte pointer traversal */
-	// unsigned char *ptr3 = (unsigned char *) &bcount; 
-	// printf("\ntraversing AFTER hton bcount\n");
-	// for (i=0; i < sizeof(int); i++)
- 	// 		printf("%x ", ptr3[i]);
- 	// printf("\n");
-
-
-
-
-
-
-
-	fclose(fp);
 	return EXIT_SUCCESS;
 }
