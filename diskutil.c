@@ -15,6 +15,7 @@
 #include <ctype.h>
 #include <sys/mman.h>
 #include <fcntl.h>
+#include <inttypes.h>
 
 #define SYSTEM_ID_LEN 8 // File system identifier 
 #define BLOCK_SIZE_LEN 2
@@ -24,7 +25,7 @@
 #define B_ROOT_START 4 	// Block where root dirtectoy starts
 #define NUM_B_ROOT 4 	// Number of blocks in root dir
 
-struct __attribute__((__packed__))dir_entry_timedate_t{
+typedef struct __attribute__((__packed__))dir_entry_timedate_t{
 	uint16_t year;
 	uint8_t month;
 	uint8_t day;
@@ -33,13 +34,13 @@ struct __attribute__((__packed__))dir_entry_timedate_t{
 	uint8_t second;
 }dir_timedate;
 
-struct __attribute__((__packed__))dir_entry_t{
+typedef struct __attribute__((__packed__))dir_entry_t{
 	uint8_t status;
 	uint32_t starting_block;
 	uint32_t block_count;
 	uint32_t size;
-	struct dir_entry_timedate_t modify_time;
 	struct dir_entry_timedate_t create_time;
+	struct dir_entry_timedate_t modify_time;
 	uint8_t filename[31];
 	uint8_t unused[6];
 }dir_entry;
@@ -50,6 +51,73 @@ unsigned int bsize = 0,
 			fatblocks = 0,
 			rootstart = 0,
 			rootblocks = 0;
+
+int disklist(int argc, char* argv[], unsigned char ** waka){
+	unsigned char *ptr = *waka;
+	if (argc != 3){
+		perror("Usage: [file_name] [disk_image] [directory]\n");
+		return EXIT_FAILURE;
+	}
+
+
+	printInitVars(); //TODO: REMOVE - JUST FOR TESTING
+
+	dir_entry *dir = (dir_entry *)calloc(1,sizeof(dir_entry));
+	
+	int dir_blocks = rootblocks; // TODO: THIS WILL HAVE THE NUMBER OF BLOCKS FOR THE FILE
+	int entry_size = bsize/sizeof(dir_entry);
+	printf("dir_blocks:%d | entry_size:%d\n", dir_blocks, entry_size);
+	for (int i = 0 ; i < 1/*dir_blocks*/ ; i++){
+		for (int j = 0 ; j < entry_size ; j++){
+			memcpy(&*dir, ptr+(rootstart*bsize)+(i*bsize)+(j*sizeof(*dir)) , sizeof(*dir));
+			printf("\nhex:%x(%d) | Entry [j:%d] | dir->status:%d\n",(rootstart*bsize)+(i*bsize)+(j*sizeof(*dir)), (rootstart*bsize)+(i*bsize)+(j*sizeof(*dir)), j, dir->status);
+			if(dir->status != 0){
+				if (dir->status == 3){
+					printf("F ");
+				}else  { 
+					printf("D ");
+				}
+				printf("%10lu ",htonl((unsigned int)dir->size));
+				printf("%29s ", dir->filename);
+				printf("%04u/", htons(dir->modify_time.year));
+				printf("%02d/", dir->modify_time.month);
+				printf("%02d ", dir->modify_time.day);
+				printf("%02d:", dir->modify_time.hour);
+				printf("%02d:", dir->modify_time.minute);
+				printf("%02d", dir->modify_time.second);
+			}else {}
+		}
+		printf("\n=====Total blocks:%d | End of block i:%d=====\n",dir_blocks, i);
+
+	}
+
+
+	//Padding file name to left
+	// char buffer[31];
+	// int ctr = 0;
+	// for(int z = 0 ; z < 31 ; z++){
+	// 	if (dir->filename[z] != 0){
+	// 		// printf("Appending:%c\n",dir->filename[z]);
+	// 		buffer[ctr] = dir->filename[z];
+	// 		ctr++;
+	// 	}
+	// }
+	// buffer[ctr] = '\0';
+	// printf("%29s", buffer);
+
+	return EXIT_SUCCESS;
+}
+
+void printInitVars(){
+
+	printf("Block size: %d\n", bsize);
+	printf("Block count: %u\n", bcount);
+	printf("FAT starts: %u\n", fatstart);
+	printf("FAT blocks: %u\n", fatblocks);
+	printf("Root directory start: %u\n", rootstart);
+	printf("Root directory blocks: %u\n", rootblocks);
+	printf("\n");
+}
 
 void intializeVars(unsigned char** waka){
 	unsigned char *ptr = *waka;
@@ -89,12 +157,7 @@ int diskinfo(int argc, char* argv[], unsigned char ** waka){
 	// id_arr[SYSTEM_ID_LEN] = '\0';
 	// // printf("SYS ID:%s\n", id_arr);
 
-	printf("Block size: %d\n", bsize);
-	printf("Block count: %u\n", bcount);
-	printf("FAT starts: %u\n", fatstart);
-	printf("FAT blocks: %u\n", fatblocks);
-	printf("Root directory start: %u\n", rootstart);
-	printf("Root directory blocks: %u\n", rootblocks);
+	intializeVars();
 
 	for (int i = (fatstart*bsize); i < ((fatstart*bsize)+(fatblocks*bsize)); i+=4){
 		buffer = 0;
@@ -116,27 +179,7 @@ int diskinfo(int argc, char* argv[], unsigned char ** waka){
 	printf("Free blocks: %d\n", free);
 	printf("Reserved blocks: %d\n", reserved);
 	printf("Allocated blocks: %d\n", allocated);
-	return EXIT_SUCCESS;
-
 	
-}
-int disklist(int argc, char* argv[], unsigned char ** waka){
-	if (argc != 3){
-		perror("Usage: [file_name] [disk_image] [directory]\n");
-		return EXIT_FAILURE;
-	}
-
-	printf("FROM DISKLISTS\n");
-	printf("Block size: %d\n", bsize);
-	printf("Block count: %u\n", bcount);
-	printf("FAT starts: %u\n", fatstart);
-	printf("FAT blocks: %u\n", fatblocks);
-	printf("Root directory start: %u\n", rootstart);
-	printf("Root directory blocks: %u\n", rootblocks);
-
-	// dir_entry *dir1 = (dir_entry *)calloc(1, sizeof(dir_entry));
-
-	// printf("%02x - %d\n", ptr[rootstart*bsize], rootstart*bsize);
 	return EXIT_SUCCESS;
 }
 
