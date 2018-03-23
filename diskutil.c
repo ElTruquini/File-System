@@ -52,62 +52,6 @@ unsigned int bsize = 0,
 			rootstart = 0,
 			rootblocks = 0;
 
-int disklist(int argc, char* argv[], unsigned char ** waka){
-	unsigned char *ptr = *waka;
-	if (argc != 3){
-		perror("Usage: [file_name] [disk_image] [directory]\n");
-		return EXIT_FAILURE;
-	}
-
-
-	printInitVars(); //TODO: REMOVE - JUST FOR TESTING
-
-	dir_entry *dir = (dir_entry *)calloc(1,sizeof(dir_entry));
-	
-	int dir_blocks = rootblocks; // TODO: THIS WILL HAVE THE NUMBER OF BLOCKS FOR THE FILE
-	int entry_size = bsize/sizeof(dir_entry);
-	printf("dir_blocks:%d | entry_size:%d\n", dir_blocks, entry_size);
-	for (int i = 0 ; i < 1/*dir_blocks*/ ; i++){
-		for (int j = 0 ; j < entry_size ; j++){
-			memcpy(&*dir, ptr+(rootstart*bsize)+(i*bsize)+(j*sizeof(*dir)) , sizeof(*dir));
-			printf("\nhex:%x(%d) | Entry [j:%d] | dir->status:%d\n",(rootstart*bsize)+(i*bsize)+(j*sizeof(*dir)), (rootstart*bsize)+(i*bsize)+(j*sizeof(*dir)), j, dir->status);
-			if(dir->status != 0){
-				if (dir->status == 3){
-					printf("F ");
-				}else  { 
-					printf("D ");
-				}
-				printf("%10lu ",htonl((unsigned int)dir->size));
-				printf("%29s ", dir->filename);
-				printf("%04u/", htons(dir->modify_time.year));
-				printf("%02d/", dir->modify_time.month);
-				printf("%02d ", dir->modify_time.day);
-				printf("%02d:", dir->modify_time.hour);
-				printf("%02d:", dir->modify_time.minute);
-				printf("%02d", dir->modify_time.second);
-			}else {}
-		}
-		printf("\n=====Total blocks:%d | End of block i:%d=====\n",dir_blocks, i);
-
-	}
-
-
-	//Padding file name to left
-	// char buffer[31];
-	// int ctr = 0;
-	// for(int z = 0 ; z < 31 ; z++){
-	// 	if (dir->filename[z] != 0){
-	// 		// printf("Appending:%c\n",dir->filename[z]);
-	// 		buffer[ctr] = dir->filename[z];
-	// 		ctr++;
-	// 	}
-	// }
-	// buffer[ctr] = '\0';
-	// printf("%29s", buffer);
-
-	return EXIT_SUCCESS;
-}
-
 void printInitVars(){
 
 	printf("Block size: %d\n", bsize);
@@ -116,7 +60,6 @@ void printInitVars(){
 	printf("FAT blocks: %u\n", fatblocks);
 	printf("Root directory start: %u\n", rootstart);
 	printf("Root directory blocks: %u\n", rootblocks);
-	printf("\n");
 }
 
 void intializeVars(unsigned char** waka){
@@ -142,6 +85,79 @@ void intializeVars(unsigned char** waka){
 	rootblocks = htonl(rootblocks);
 }		
 
+int disklist(int argc, char* argv[], unsigned char ** waka){
+	unsigned char *ptr = *waka;
+	if (argc != 3){
+		perror("Usage: [file_name] [disk_image] [directory]\n");
+		return EXIT_FAILURE;
+	}
+
+	intializeVars(&ptr);
+	printInitVars(); //TODO: REMOVE - JUST FOR TESTING
+
+	dir_entry *dir = (dir_entry *)calloc(1,sizeof(dir_entry));
+	
+	int dir_blocks = rootblocks; // TODO: THIS WILL HAVE THE NUMBER OF BLOCKS FOR THE FILE
+	
+	int entry_size = bsize/sizeof(dir_entry);
+	printf("dir_blocks:%d | entry_size:%d\n", dir_blocks, entry_size);
+	
+
+	for (int i = 0 ; i < 1/*dir_blocks*/ ; i++){
+		for (int j = 0 ; j < entry_size ; j++){
+			memcpy(&*dir, ptr+(rootstart*bsize)+(i*bsize)+(j*sizeof(*dir)) , sizeof(*dir));
+			// printf("\nhex:%x(%d) | Entry [j:%d] | dir->status:%d\n",(rootstart*bsize)+(i*bsize)+(j*sizeof(*dir)), (rootstart*bsize)+(i*bsize)+(j*sizeof(*dir)), j, dir->status);
+			if(dir->status != 0){
+				if (dir->status == 3){
+					printf("F ");
+				}else  { 
+					printf("D ");
+				}
+				printf("%10lu ",(unsigned long)htonl(dir->size));
+				printf("%29s ", dir->filename);
+				printf("%04u/", htons(dir->modify_time.year));
+				printf("%02d/", dir->modify_time.month);
+				printf("%02d ", dir->modify_time.day);
+				printf("%02d:", dir->modify_time.hour);
+				printf("%02d:", dir->modify_time.minute);
+				printf("%02d", dir->modify_time.second);
+				printf("\n");
+			}else {}
+		}
+		printf("\n=====Total blocks:%d | End of block i:%d=====\n",dir_blocks, i);
+
+	}
+	int i = 0;
+	printf("\n");
+	unsigned long b_address[dir_blocks];
+
+	int offset =(fatstart*bsize)+1;
+	memcpy(&b_address+i, ptr+offset, sizeof(int));
+	printf("Before htonl:%08x\n",(unsigned long) *(b_address+i));
+	*(b_address+i) = (unsigned long)htonl(*(b_address+i));
+	printf("After htonl:%08x\n", (unsigned long) *(b_address+i));
+
+	printf("Entry:%x (%d) | B_address:%x (%d)\n",(unsigned int)(offset), (unsigned int)(offset), (unsigned int)*(b_address+i), (unsigned int)*(b_address+i));
+
+
+	//Padding file name to left
+	// char buffer[31];
+	// int ctr = 0;
+	// for(int z = 0 ; z < 31 ; z++){
+	// 	if (dir->filename[z] != 0){
+	// 		// printf("Appending:%c\n",dir->filename[z]);
+	// 		buffer[ctr] = dir->filename[z];
+	// 		ctr++;
+	// 	}
+	// }
+	// buffer[ctr] = '\0';
+	// printf("%29s", buffer);
+
+	return EXIT_SUCCESS;
+}
+
+
+
 int diskinfo(int argc, char* argv[], unsigned char ** waka){
 	unsigned char *ptr = *waka;
 	int buffer = 0,
@@ -157,7 +173,8 @@ int diskinfo(int argc, char* argv[], unsigned char ** waka){
 	// id_arr[SYSTEM_ID_LEN] = '\0';
 	// // printf("SYS ID:%s\n", id_arr);
 
-	intializeVars();
+	intializeVars(&ptr);
+	printInitVars();
 
 	for (int i = (fatstart*bsize); i < ((fatstart*bsize)+(fatblocks*bsize)); i+=4){
 		buffer = 0;
@@ -175,6 +192,7 @@ int diskinfo(int argc, char* argv[], unsigned char ** waka){
 			allocated++;	
 		}
 	}	
+
 	printf("\nFAT information:\n");
 	printf("Free blocks: %d\n", free);
 	printf("Reserved blocks: %d\n", reserved);
@@ -214,10 +232,8 @@ int main(int argc, char* argv[]) {
 	ptr = mmap(NULL, file_size.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, file, 0);
 
 	#if defined(PART1)
-		intializeVars(&ptr);
 		retval = diskinfo(argc, argv, &ptr);
 	#elif defined(PART2)
-		intializeVars(&ptr);
 		retval = disklist(argc, argv, &ptr);
 	#elif defined(PART3)
 		retval = diskget(argc,argv, &ptr);
