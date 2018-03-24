@@ -5,6 +5,7 @@ all:
 	# gcc -Wall -D PART3 diskutil.c -o diskget
 	# gcc -Wall -D PART4 diskutil.c -o diskput
 
-.PHONE clean:
-clean:
-	-rm diskinfo disklist diskget diskput
+# .PHONE clean:
+# clean:
+	# -rm diskinfo disklist diskget diskput
+	
