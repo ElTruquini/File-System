@@ -83,10 +83,33 @@ void intializeVars(unsigned char** waka){
 	//Root directory blocks
 	memcpy(&rootblocks, ptr+SYSTEM_ID_LEN+BLOCK_SIZE_LEN+FILE_SYS_SIZE+B_FAT_START+NUM_B_FAT+B_ROOT_START, NUM_B_ROOT);
 	rootblocks = htonl(rootblocks);
+}
+
+static void printDir(dir_entry **waka){
+	dir_entry *dir = *waka;
+
+	if (dir->status == 3){
+		printf("F ");
+	}else  { 
+		printf("D ");
+	}
+	printf("%10lu ",(unsigned long)htonl(dir->size));
+	printf("%29s ", dir->filename);
+	printf("%04u/", htons(dir->modify_time.year));
+	printf("%02d/", dir->modify_time.month);
+	printf("%02d ", dir->modify_time.day);
+	printf("%02d:", dir->modify_time.hour);
+	printf("%02d:", dir->modify_time.minute);
+	printf("%02d", dir->modify_time.second);
+	printf("\n");
 }		
 
-int disklist(int argc, char* argv[], unsigned char ** waka){
+static int disklist(int argc, char* argv[], unsigned char ** waka){
 	unsigned char *ptr = *waka;
+	dir_entry *dir = (dir_entry *)calloc(1,sizeof(dir_entry));
+	int entry_size, dir_blocks;
+	int root_flag = 0;
+
 	if (argc != 3){
 		perror("Usage: [file_name] [disk_image] [directory]\n");
 		return EXIT_FAILURE;
@@ -95,63 +118,70 @@ int disklist(int argc, char* argv[], unsigned char ** waka){
 	intializeVars(&ptr);
 	printInitVars(); //TODO: REMOVE - JUST FOR TESTING
 
-	dir_entry *dir = (dir_entry *)calloc(1,sizeof(dir_entry));
-	
-	int dir_blocks = rootblocks; // TODO: THIS WILL HAVE THE NUMBER OF BLOCKS FOR THE FILE
-	
-	int entry_size = bsize/sizeof(dir_entry);
-	printf("dir_blocks:%d | entry_size:%d\n", dir_blocks, entry_size);
-	
+	entry_size = bsize/sizeof(dir_entry);
+	// printf("\ndir_blocks:%d | entry_size:%d\n", dir_blocks, entry_size);
 
-	for (int i = 0 ; i < 1/*dir_blocks*/ ; i++){
+
+	// Checks if Root dir and defines dir_blocks
+	if (strcmp(argv[2], "/") == 0){
+		root_flag = 1;
+		dir_blocks = rootblocks; 
+
+		printf("\nINFO: Listing Root directory\n");
+	}else{
+		printf("INFO: Listing else\n");
+
+		//TODO: Need to set dir_blocks for else
+		//TODO: parse string
+
+		printf("argv[2]:%s\n", argv[2]);
+		const char s[2] = "/";
+
+
+
+	}
+
+	unsigned int b_address[dir_blocks];
+	memset(b_address, 0, sizeof(int)*dir_blocks);
+	
+	// Sets first address of dir 
+	if (root_flag){
+		b_address[0] = rootstart; 
+	}else{
+		//TODO: Need to set b_address[0] for other dir
+	}
+
+
+	//FAT Table: Gets all block locations for dir and stores result in b_address array
+	if (root_flag){
+		printf("INFO: Getting all Root addresses: %d blocks\n", dir_blocks);
+		for (int i = 1 ; i < dir_blocks ; i++){
+			int offset = (b_address[i-1]*sizeof(int));
+			memcpy(b_address+i, ptr+(fatstart*bsize)+offset, sizeof(int));
+			b_address[i] = ntohl(b_address[i]);
+			// printf("Offset:%x (%d) | After htonl:%08x\n", offset, offset, b_address[i]);
+		}
+		for (int i = 0 ; i < dir_blocks ; i ++) printf("INFO: b_address[%i]: %x (%d) = %d byte \n", i, b_address[i], b_address[i], b_address[i]*bsize);
+	}else{
+		//TODO: WHEN NOT ROOT
+	}
+
+
+	printf("\n");
+	// Data blocks: Visits all block locations from dir
+	for (int i = 0 ; i < dir_blocks ; i++){
 		for (int j = 0 ; j < entry_size ; j++){
-			memcpy(&*dir, ptr+(rootstart*bsize)+(i*bsize)+(j*sizeof(*dir)) , sizeof(*dir));
-			// printf("\nhex:%x(%d) | Entry [j:%d] | dir->status:%d\n",(rootstart*bsize)+(i*bsize)+(j*sizeof(*dir)), (rootstart*bsize)+(i*bsize)+(j*sizeof(*dir)), j, dir->status);
+			memcpy(&*dir, ptr+(b_address[i]*bsize)+(j*sizeof(*dir)) , sizeof(*dir));
+			printf("hex:%x(%lu) | Entry: [j:%d] | status:%d\n",(unsigned int)((rootstart*bsize)+(i*bsize)+(j*sizeof(*dir))),
+						 (rootstart*bsize)+(i*bsize)+(j*sizeof(*dir)), j, dir->status);
 			if(dir->status != 0){
-				if (dir->status == 3){
-					printf("F ");
-				}else  { 
-					printf("D ");
-				}
-				printf("%10lu ",(unsigned long)htonl(dir->size));
-				printf("%29s ", dir->filename);
-				printf("%04u/", htons(dir->modify_time.year));
-				printf("%02d/", dir->modify_time.month);
-				printf("%02d ", dir->modify_time.day);
-				printf("%02d:", dir->modify_time.hour);
-				printf("%02d:", dir->modify_time.minute);
-				printf("%02d", dir->modify_time.second);
-				printf("\n");
+				printDir(&dir);
 			}else {}
 		}
 		printf("\n=====Total blocks:%d | End of block i:%d=====\n",dir_blocks, i);
-
 	}
-	int i = 0;
-	printf("\n");
-	unsigned long b_address[dir_blocks];
+	
 
-	int offset =(fatstart*bsize)+1;
-	memcpy(&b_address+i, ptr+offset, sizeof(int));
-	printf("Before htonl:%08x\n",(unsigned long) *(b_address+i));
-	*(b_address+i) = (unsigned long)htonl(*(b_address+i));
-	printf("After htonl:%08x\n", (unsigned long) *(b_address+i));
-
-	printf("Entry:%x (%d) | B_address:%x (%d)\n",(unsigned int)(offset), (unsigned int)(offset), (unsigned int)*(b_address+i), (unsigned int)*(b_address+i));
-
-
-	//Padding file name to left
-	// char buffer[31];
-	// int ctr = 0;
-	// for(int z = 0 ; z < 31 ; z++){
-	// 	if (dir->filename[z] != 0){
-	// 		// printf("Appending:%c\n",dir->filename[z]);
-	// 		buffer[ctr] = dir->filename[z];
-	// 		ctr++;
-	// 	}
-	// }
-	// buffer[ctr] = '\0';
-	// printf("%29s", buffer);
 
 	return EXIT_SUCCESS;
 }
