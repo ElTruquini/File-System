@@ -56,32 +56,30 @@ unsigned int bsize = 0,
 unsigned char *ptr;
 unsigned int *b_address_ptr;
 
-
 static void printInitVars();
 static void intializeVars(unsigned char** waka);
 static void printDir(dir_entry **waka);
-static int disklist(int argc, char* argv[]);
-int diskinfo(int argc, char* argv[], unsigned char ** waka);
-// static int diskput(int argc, char* argv[], unsigned char ** waka);
-// static int diskget(int argc, char* argv[], unsigned char ** waka);
 static void getblocks(const int dir_blocks);
+static void tokenizePath(int *d, char *argv[], char *path);
+static int blockIO(int dir_blocks, int entry_size, int IO, char *argv[]);
+int disklist(int argc, char* argv[]);
+int diskinfo(int argc, char* argv[]);
+int diskput(int argc, char* argv[]);
+int diskget(int argc, char* argv[]);
+
 
 
 
 static void getblocks(const int dir_blocks){
-
-	for(int i = 0 ; i < dir_blocks ; i++) printf("GETBLOCKS initial - b_address_arr[%d]:0x%08x (%u) \n", i, *(b_address_ptr+i), *(b_address_ptr+i));
-
-	printf("GETBLOCKS: Getting all Root addresses: %d blocks\n", dir_blocks);
-
+	// for(int i = 0 ; i < dir_blocks ; i++) printf("GETBLOCKS initial - b_address_arr[%d]:0x%08x (%u) \n", i, *(b_address_ptr+i), *(b_address_ptr+i));
+	// printf("GETBLOCKS: Getting all Root addresses: %d blocks\n", dir_blocks);
 	for (int i = 1 ; i < dir_blocks ; i++){
-
-
 		unsigned int offset = *(b_address_ptr+i-1)*sizeof(int);
 		memcpy(&*(b_address_ptr+i), ptr+(fatstart*bsize)+offset, sizeof(int));
 		*(b_address_ptr+i) = ntohl(*(b_address_ptr+i));
-		// printf("Offset:%x (%u) | After htonl:%08x\n", offset, offset, *(b_address_ptr+i-1));
+		// printf("Offset:0x%x (%u)| ptr:0x%x (%d) | b_address_ptr:%08x (%d)\n", offset, offset,(fatstart*bsize)+offset,(fatstart*bsize)+offset, *(b_address_ptr+i), *(b_address_ptr+i));
 	}
+	// for(int i = 0 ; i < dir_blocks ; i++) printf("GETBLOCKS final - b_address_arr[%d]:0x%08x (%u) \n", i, *(b_address_ptr+i), *(b_address_ptr+i));
 
 }
 
@@ -137,123 +135,61 @@ static void printDir(dir_entry **waka){
 	printf("\n");
 }		
 
-static int disklist(int argc, char* argv[]){
-	char *path = (char*)malloc(10*FILE_NAME_LEN*sizeof(char));
-	dir_entry *dir = (dir_entry *)calloc(1,sizeof(dir_entry));
-	int entry_size, 
-		dir_blocks = 0,
-		root_flag = 0,
-		dir_depth = 0;
+static void tokenizePath(int *dir_depth, char *argv[], char *path){
+	const char s[2] = "/";
+	char *token;
+	token = strtok(argv[2], s);
+	strcpy(path+(*dir_depth)*FILE_NAME_LEN, token);
+	*dir_depth += 1;
 
-	if (argc != 3){
-		perror("disklist - Usage: [file_name] [disk_image] [directory]\n");
-		return EXIT_FAILURE;
+	while (1){
+		token = strtok(NULL, s);
+		if (token == NULL){
+			break;
+		}
+		strcpy(path+(*dir_depth)*FILE_NAME_LEN, token);
+		*dir_depth += 1;
 	}
+}
 
-	intializeVars(&ptr);
-	printInitVars(); //TODO: REMOVE - JUST FOR TESTING
+// Visits (dir_blocks) block locations from b_address_ptr,
+// if IO == 1, block contents will be written to file args[3]
+// if IO == 0, block content will print on screen
+static int blockIO(int dir_blocks, int entry_size,  int IO, char *args[] ){
+	printf("blockIO | dir_blocks:%d |entry_size:%d | bsize:%d\n", dir_blocks, entry_size, bsize);
+	for(int i = 0 ; i < dir_blocks ; i++) printf("blockIO b_address_ptr+%d:0x%x (%u)  \n", i, *(b_address_ptr+i), *(b_address_ptr+i));
 
-	entry_size = bsize/sizeof(dir_entry);
-
-
-	// Searching through Root
-	if (strcmp(argv[2], "/") == 0){
-		printf("\ndisklist - Listing Root directory\n");
-		root_flag = 1;
-
-	//Tokenizing search path
-	}else{ 
-		printf("disklist - Listing else: %s\n", argv[2]);
-		const char s[2] = "/";
-		char *token;
-		token = strtok(argv[2], s);
-		strcpy(path+dir_depth*FILE_NAME_LEN, token);
-		dir_depth++;
-				while (1){
-			token = strtok(NULL, s);
-			if (token == NULL){
-				break;
+    // Write blocks to file
+	if(IO == 1){
+    	FILE* f = fopen(args[3], "wb");
+		for (int i = 0 ; i < dir_blocks ; i++){
+			unsigned int offset = (*(b_address_ptr+i)*bsize);
+			// printf("offset:%u - %08x\n", offset, offset);
+			if (fwrite(ptr+offset, sizeof(char), bsize, f) != bsize){
+				fprintf(stderr, "fwrite() error occurred\n" );
+				return EXIT_FAILURE;
 			}
-			strcpy(path+dir_depth*FILE_NAME_LEN, token);
-			dir_depth++;
-		}
-		for (int i = 0 ; i < dir_depth ; i++) printf("Path[%d]:%s\n", i, path+i*FILE_NAME_LEN);
+		}	
+		printf("File [%s] succesfully copied to [%s]\n", args[2], args[3]);
+		fclose(f);
 	}
 
-
-
-	// Getting block addresses
-	int ctr = 0, got_blocks = 0;
-	while (!got_blocks){
-		//Getting root blocks addresses
-		if (ctr == 0){
-			dir_blocks = rootblocks; 
-			b_address_ptr = (unsigned int *)malloc(dir_blocks*sizeof(unsigned int));
-			memset(b_address_ptr, 0, dir_blocks*sizeof(unsigned int));
-			for(int i = 0 ; i < dir_blocks ; i++) printf("PRE getblocks- b_address_ptr+%d:0x%x (%u)  \n", i, *(b_address_ptr+i), *(b_address_ptr+i));
-			*b_address_ptr = rootstart;
-
-			getblocks(dir_blocks);	
-			for(int i = 0 ; i < dir_blocks ; i++) printf("POST getblocks- b_address_ptr+%d:0x%x (%u)  \n", i, *(b_address_ptr+i), *(b_address_ptr+i));
-			return EXIT_SUCCESS;
-		}
-
-		if (root_flag){
-			got_blocks = 1;
-		}else{
-			int path_found = 0;
-			while (!path_found){
-
-				printf("else dir_blocks:%d\n", dir_blocks);
-				for (int i = 0 ; i < dir_blocks && !path_found ; i++){
-					for (int j = 0 ; j < entry_size ; j++){
-						memcpy(&*dir, ptr+(*(b_address_ptr+i)*bsize)+(j*sizeof(*dir)) , sizeof(*dir));
-						printf("COMPARING filename:%s ?= path:%s\n", (char *)dir->filename, path+ctr*FILE_NAME_LEN);
-
-
-						if(strcmp((char*)dir->filename, path+ctr*FILE_NAME_LEN) == 0){
-							printf("FOUND %s | new dir_blocks:%d | new first_block:%08x (%d)\n",
-									(char*)dir->filename, htonl((int)dir->block_count), ntohl((int)dir->starting_block), ntohl((int)dir->starting_block));
-							dir_blocks = htonl((unsigned int)dir->block_count);
-							free(b_address_ptr);
-							b_address_ptr = (unsigned int *)calloc(dir_blocks, sizeof(unsigned int));
-							*b_address_ptr = ntohl((int)dir->starting_block);
-							path_found = 1;
-							break;
-						}
-					}
+    //Printf blocks to content
+	if(IO == 0){
+		dir_entry *dir = (dir_entry *)calloc(1,sizeof(dir_entry));
+		for (int i = 0 ; i < dir_blocks ; i++){
+			for (int j = 0 ; j < entry_size ; j++){
+				memcpy(&*dir, ptr+(*(b_address_ptr+i)*bsize)+(j*sizeof(*dir)) , sizeof(*dir));
+				// printf("hex:%x(%lu) | Entry: [j:%d] | status:%d\n",(unsigned int)((rootstart*bsize)+(i*bsize)+(j*sizeof(*dir))),(rootstart*bsize)+(i*bsize)+(j*sizeof(*dir)), j, dir->status);
+				if(dir->status != 0){
+					printDir(&dir);
+				}else {
 				}
-				
 			}
-
+			// printf("\n=====Total blocks:%d | End of block i:%d=====\n",dir_blocks, i);
 		}
-		ctr++;
-		printf("dir_depth-1:%d - ctr:%d\n", dir_depth-1, ctr);
-		if (dir_depth-1 == ctr){
-			got_blocks = 1;
-		}
+		free(dir);
 	}
-
-	printf("disklist - Final b_address_ptr: 0x%08x (%d) = 0x%08x byte\n", *b_address_ptr, *b_address_ptr, *b_address_ptr*bsize );
-		return EXIT_SUCCESS;
-
-	printf("\n");
-
-	// Data blocks: Visits all block locations from dir, prints contents
-	for (int i = 0 ; i < dir_blocks ; i++){
-		for (int j = 0 ; j < entry_size ; j++){
-			memcpy(&*dir, ptr+(*(b_address_ptr+i)*bsize)+(j*sizeof(*dir)) , sizeof(*dir));
-			// printf("hex:%x(%lu) | Entry: [j:%d] | status:%d\n",(unsigned int)((rootstart*bsize)+(i*bsize)+(j*sizeof(*dir))),
-			// 			 (rootstart*bsize)+(i*bsize)+(j*sizeof(*dir)), j, dir->status);
-			if(dir->status != 0){
-				printDir(&dir);
-			}else {
-			}
-		}
-		printf("\n=====Total blocks:%d | End of block i:%d=====\n",dir_blocks, i);
-	}
-
-
 
 
 	return EXIT_SUCCESS;
@@ -261,15 +197,125 @@ static int disklist(int argc, char* argv[]){
 
 
 
-int diskinfo(int argc, char* argv[], unsigned char ** waka){
-	unsigned char *ptr = *waka;
+int disklist(int argc, char* argv[]){
+	char *path = (char*)malloc(10*FILE_NAME_LEN*sizeof(char));
+	dir_entry *dir = (dir_entry *)calloc(1,sizeof(dir_entry));
+	if (dir == NULL || path == NULL){
+		fprintf(stderr, "disklist - malloc(path, dir)  failed: insufficient memory!\n");
+		return EXIT_FAILURE;
+	}
+	int entry_size, 
+		dir_blocks = 0,
+		root_flag = 0,
+		dir_depth = 0;
+
+	if (argc != 3){
+		fprintf(stderr,"disklist - Usage: [file_name] [disk_image] [path]\n");
+		return EXIT_FAILURE;
+	}
+
+	intializeVars(&ptr);
+	printInitVars(); //TODO: REMOVE - JUST FOR TESTING
+
+	//Must be intialized after intializeVars
+	entry_size = bsize/sizeof(dir_entry);
+
+
+	if (strcmp(argv[2], "/") == 0){
+		root_flag = 1;
+	}else{ 
+		tokenizePath(&dir_depth, argv, path);
+		// for (int i = 0 ; i < dir_depth ; i++) printf("Path[%d]:%s | dir_depth:%d \n", i, path+i*FILE_NAME_LEN, dir_depth);
+	}
+	
+	int ctr = 0, 
+		got_blocks = 0, 
+		path_found = 0;;
+	while (!got_blocks){
+		//Getting root blocks addresses
+		if (ctr == 0){
+			dir_blocks = rootblocks; 
+			b_address_ptr = (unsigned int *)malloc(dir_blocks*sizeof(unsigned int));
+			if (b_address_ptr == NULL){
+				fprintf(stderr, "malloc(b_address_ptr) failed: insufficient memory!\n");
+        		return EXIT_FAILURE;
+			}
+			memset(b_address_ptr, 0, dir_blocks*sizeof(unsigned int));
+			*b_address_ptr = rootstart;
+			getblocks(dir_blocks);	
+		}
+		// for(int i = 0 ; i < dir_blocks ; i++) printf("POST getblocks- b_address_ptr+%d:0x%x (%u)  \n", i, *(b_address_ptr+i), *(b_address_ptr+i));
+		if (root_flag){
+			got_blocks = 1;
+			path_found = 1;
+		}else{
+			path_found = 0;
+			// Loops through all the dir blocks and compares  file_name with search path for each entry, 
+			// If success(dir found), it retrieves all the new block addresses and stores in b_address_ptr
+			while (!path_found){
+				// printf("else dir_blocks:%d \n", dir_blocks);
+				for (int i = 0 ; i < dir_blocks && !path_found ; i++){
+					for (int j = 0 ; j < entry_size ; j++){
+						memcpy(&*dir, ptr+(*(b_address_ptr+i)*bsize)+(j*sizeof(*dir)) , sizeof(*dir));
+						// printf("COMPARING filename:%s ?= path:%s\n", (char *)dir->filename, path+ctr*FILE_NAME_LEN);
+						if(strcmp((char*)dir->filename, path+ctr*FILE_NAME_LEN) == 0){
+							// printf("COMPARING FOUND! %s | new dir_blocks:%d | new first_block:%08x (%d)\n", (char*)dir->filename, htonl((int)dir->block_count), ntohl((int)dir->starting_block), ntohl((int)dir->starting_block));
+							dir_blocks = htonl((unsigned int)dir->block_count);
+							free(b_address_ptr);
+							b_address_ptr = (unsigned int *)calloc(dir_blocks, sizeof(unsigned int));
+							if (b_address_ptr == NULL){
+								fprintf(stderr, "malloc(b_address_ptr) failed: insufficient memory!\n");
+				        		return EXIT_FAILURE;
+							}
+							*b_address_ptr = ntohl((int)dir->starting_block);
+							path_found = 1;
+							// for(int i = 0 ; i < dir_blocks ; i++) printf("PRE getblocks- b_address_ptr+%d:0x%x (%u)  \n", i, *(b_address_ptr+i), *(b_address_ptr+i));
+							getblocks(dir_blocks);	
+							break;
+						}
+					}
+				}
+				ctr++;
+				// printf("dir_depth:%d - ctr:%d\n", dir_depth, ctr);
+				if (dir_depth == ctr){
+					got_blocks = 1;
+					break;
+				}
+			}
+		}
+	}
+	if (!path_found){
+		fprintf(stderr, "Error - Path not found\n");
+		return EXIT_FAILURE;
+	}
+	
+	//Visits all block locations from dir, printf struct dir_entry contents
+	if (blockIO(dir_blocks, entry_size, 0, argv) == EXIT_FAILURE){
+		fprintf(stderr, "Error ocurred blockIO()\n");
+		return EXIT_FAILURE;
+	}
+
+	free(path);
+	free(b_address_ptr);
+	free(dir);
+
+	return EXIT_SUCCESS;
+}
+
+
+
+int diskinfo(int argc, char* argv[]){
 	int buffer = 0,
 		reserved = 0,
 		free = 0,
 		allocated = 0;
 
-	printf("Super block information:\n");
+	if (argc != 2){
+		fprintf(stderr,"diskget - Usage: [file_name] [disk_image]\n");
+		return EXIT_FAILURE;
+	}
 
+	printf("Super block information:\n");
 	// //File system identifier
 	// unsigned char id_arr[SYSTEM_ID_LEN+1]; 
 	// memcpy(&id_arr, ptr, SYSTEM_ID_LEN);
@@ -304,10 +350,130 @@ int diskinfo(int argc, char* argv[], unsigned char ** waka){
 }
 
 
-int diskput(int argc, char* argv[], unsigned char ** waka){
+int diskput(int argc, char* argv[]){
+	char *path = (char*)malloc(10*FILE_NAME_LEN*sizeof(char));
+	dir_entry *dir = (dir_entry *)calloc(1,sizeof(dir_entry));
+	if (dir == NULL || path == NULL){
+		fprintf(stderr, "diskput - malloc(path, dir)  failed: insufficient memory!\n");
+		return EXIT_FAILURE;
+	}
+	int entry_size, 
+		dir_blocks = 0,
+		root_flag = 0,
+		dir_depth = 0;
+
+	if (argc != 4){
+		fprintf(stderr,"diskput - Usage: [file_name] [disk_image] [source_file] [dest_path]\n");
+		return EXIT_FAILURE;
+	}
+
+
+
 	return EXIT_SUCCESS;
 }
-int diskget(int argc, char* argv[], unsigned char ** waka){
+
+int diskget(int argc, char* argv[]){
+	char *path = (char*)malloc(10*FILE_NAME_LEN*sizeof(char));
+	dir_entry *dir = (dir_entry *)calloc(1,sizeof(dir_entry));
+	if (dir == NULL || path == NULL){
+		fprintf(stderr, "diskget - malloc(path, dir)  failed: insufficient memory!\n");
+		return EXIT_FAILURE;
+	}
+	int entry_size, 
+		dir_blocks = 0,
+		root_flag = 0,
+		dir_depth = 0;
+
+	if (argc != 4){
+		fprintf(stderr,"diskget - Usage: [file_name] [disk_image] [path] [dest_file_name]\n");
+		return EXIT_FAILURE;
+	}
+
+	intializeVars(&ptr);
+	printInitVars(); //TODO: REMOVE - JUST FOR TESTING
+
+	//Must be intialized after intializeVars
+	entry_size = bsize/sizeof(dir_entry);
+
+	if (strcmp(argv[2], "/") == 0){
+		root_flag = 1;
+	}else{ 
+		tokenizePath(&dir_depth, argv, path);
+		// for (int i = 0 ; i < dir_depth ; i++) printf("Path[%d]:%s | dir_depth:%d \n", i, path+i*FILE_NAME_LEN, dir_depth);
+	}
+
+	int ctr = 0, 
+		got_blocks = 0, 
+		path_found = 0;;
+	while (!got_blocks){
+		//Getting root blocks addresses
+		if (ctr == 0){
+			dir_blocks = rootblocks; 
+			b_address_ptr = (unsigned int *)malloc(dir_blocks*sizeof(unsigned int));
+			if (b_address_ptr == NULL){
+				fprintf(stderr, "malloc(b_address_ptr) failed: insufficient memory!\n");
+        		return EXIT_FAILURE;
+			}
+			memset(b_address_ptr, 0, dir_blocks*sizeof(unsigned int));
+			*b_address_ptr = rootstart;
+			getblocks(dir_blocks);	
+		}
+		// for(int i = 0 ; i < dir_blocks ; i++) printf("POST getblocks- b_address_ptr+%d:0x%x (%u)  \n", i, *(b_address_ptr+i), *(b_address_ptr+i));
+		if (root_flag){
+			got_blocks = 1;
+			path_found = 1;
+		}else{
+			path_found = 0;
+			// Loops through all the dir blocks and compares  file_name with search path for each entry, 
+			// If success(dir found), it retrieves all the new block addresses and stores in b_address_ptr
+			while (!path_found){
+				// printf("else dir_blocks:%d \n", dir_blocks);
+				for (int i = 0 ; i < dir_blocks && !path_found ; i++){
+					for (int j = 0 ; j < entry_size ; j++){
+						memcpy(&*dir, ptr+(*(b_address_ptr+i)*bsize)+(j*sizeof(*dir)) , sizeof(*dir));
+						// printf("COMPARING filename:%s ?= path:%s\n", (char *)dir->filename, path+ctr*FILE_NAME_LEN);
+						if(strcmp((char*)dir->filename, path+ctr*FILE_NAME_LEN) == 0){
+							// printf("COMPARING FOUND! %s | new dir_blocks:%d | new first_block:%08x (%d)\n", (char*)dir->filename, htonl((int)dir->block_count), ntohl((int)dir->starting_block), ntohl((int)dir->starting_block));
+							dir_blocks = htonl((unsigned int)dir->block_count);
+							free(b_address_ptr);
+							b_address_ptr = (unsigned int *)calloc(dir_blocks, sizeof(unsigned int));
+							if (b_address_ptr == NULL){
+								fprintf(stderr, "malloc(b_address_ptr) failed: insufficient memory!\n");
+				        		return EXIT_FAILURE;
+							}
+							*b_address_ptr = ntohl((int)dir->starting_block);
+							path_found = 1;
+							// for(int i = 0 ; i < dir_blocks ; i++) printf("PRE getblocks- b_address_ptr+%d:0x%x (%u)  \n", i, *(b_address_ptr+i), *(b_address_ptr+i));
+							getblocks(dir_blocks);	
+							break;
+						}
+					}
+				}
+				ctr++;
+				// printf("dir_depth:%d - ctr:%d\n", dir_depth, ctr);
+				if (dir_depth == ctr){
+					got_blocks = 1;
+					break;
+				}
+			}
+		}
+	}
+	if (!path_found){
+		fprintf(stderr, "Error - Path not found\n");
+		return EXIT_FAILURE;
+	}
+	for(int i = 0 ; i < dir_blocks ; i++) printf("POST getblocks- b_address_ptr+%d:0x%x (%u)  \n", i, *(b_address_ptr+i), *(b_address_ptr+i));
+	printf("\n");
+
+	//Visits all block locations from dir, printf struct dir_entry contents
+	if (blockIO(dir_blocks, entry_size, 1, argv) == EXIT_FAILURE){
+		fprintf(stderr, "Error ocurred blockIO()\n");
+		return EXIT_FAILURE;
+	}
+	free(path);
+	free(dir);
+	free(b_address_ptr);
+
 	return EXIT_SUCCESS;
 }
 
@@ -318,10 +484,6 @@ int main(int argc, char* argv[]) {
 	int file, 
 		retval = EXIT_SUCCESS;
 
-	if (argc < 2){
-		perror("Usage: [file_name] [disk_image]\n");
-		return EXIT_FAILURE;
-	}
 	file = open(argv[1], O_RDWR);
 	if (file < 0){
 		fprintf(stderr,"Unable to open file [%s]\n", argv[1]);
@@ -336,13 +498,13 @@ int main(int argc, char* argv[]) {
 	ptr = mmap(NULL, file_size.st_size, PROT_READ | PROT_WRITE, MAP_SHARED, file, 0);
 
 	#if defined(PART1)
-		retval = diskinfo(argc, argv, &ptr);
+		retval = diskinfo(argc, argv);
 	#elif defined(PART2)
 		retval = disklist(argc, argv);
 	#elif defined(PART3)
-		retval = diskget(argc,argv, &ptr);
+		retval = diskget(argc,argv);
 	#elif defined(PART4)
-		retval = diskput(argc, argv, &ptr);
+		retval = diskput(argc, argv);
 	#else
 	#	error "PART[1234] must be defined"
 	#endif
