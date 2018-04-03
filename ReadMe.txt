@@ -13,7 +13,7 @@ To compile:
 
 PART 1 - diskinfo:
 	
-	Gets superblock information and prints on screen
+	Gets superblock information and prints file sys meta data on screen
 	Usage: diskinfo [disk_image]
 		-Block size
 		-Block count
